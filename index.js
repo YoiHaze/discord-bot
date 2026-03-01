@@ -1,6 +1,24 @@
+const OWNER_ID = "1031037788579176528";
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const fs = require("fs");
 const axios = require("axios");
+
+// ================= GIVEAWAY STORAGE =================
+const GIVEAWAY_FILE = "./giveaways.json";
+
+function loadGiveaways() {
+    try {
+        return JSON.parse(fs.readFileSync(GIVEAWAY_FILE, "utf8"));
+    } catch {
+        return [];
+    }
+}
+
+function saveGiveaways(data) {
+    fs.writeFileSync(GIVEAWAY_FILE, JSON.stringify(data, null, 2));
+}
+
+let giveaways = loadGiveaways();
 
 // ⚠️ DÁN COOKIE .ROBLOSECURITY CỦA BẠN
 const ROBLOX_COOKIE = process.env.ROBLOX_COOKIE;
@@ -40,7 +58,6 @@ function getUser(id) {
     return money[id];
 }
 
-const WORK_COOLDOWN = 60 * 1000;
 const DAILY_COOLDOWN = 24 * 60 * 60 * 1000;
 
 // ================= CONFIG =================
@@ -56,6 +73,7 @@ let cachedRobloxUserId = null;
 let lastPendingRobux = null;
 let lastGiveaway = null;
 let lastPendingMessage = null; // 🔥 lưu message pending cuối
+let cachedRobloxAvatar = null;
 
 // ===== AUTO PENDING STATUS =====
 let autoPendingStatus = {
@@ -81,6 +99,10 @@ async function getRobloxPending() {
             );
             cachedRobloxUserId = userRes.data.id;
 			cachedRobloxUsername = userRes.data.name;
+			
+			if (!cachedRobloxAvatar) {
+                cachedRobloxAvatar = await getRobloxAvatar(cachedRobloxUserId);
+            }
         }
 
         const res = await axios.get(
@@ -100,8 +122,75 @@ async function getRobloxPending() {
     }
 }
 
+async function getRobloxAvatar(userId) {
+    try {
+        const res = await axios.get(
+            `https://thumbnails.roblox.com/v1/users/avatar-headshot`,
+            {
+                params: {
+                    userIds: userId,
+                    size: "420x420",
+                    format: "Png",
+                    isCircular: false
+                }
+            }
+        );
+		
+		const url = res.data?.data?.[0]?.imageUrl;
+		
+		// ✅ nếu API fail → fallback link cũ
+		return (
+		    url ||
+			`https://www.roblox.com/headshot-thumbnail/image?userId=${userId}&width=420&height=420&format=png`
+	    );
+    } catch (err) {
+		console.error("Avatar fetch error:", err.response?.data || err.message);
+		
+		// ✅ fallback luôn
+		return `https://www.roblox.com/headshot-thumbnail/image?userId=${userId}&width=420&height=420&format=png`;
+    }
+}
+
+async function endGiveaway(client, data) {
+    try {
+        const channel = await client.channels.fetch(data.channelId).catch(() => null);
+        if (!channel || !channel.isTextBased()) return;
+
+        const msg = await channel.messages.fetch(data.messageId).catch(() => null);
+        if (!msg) return;
+
+        const reaction = msg.reactions.cache.get("🎉");
+        if (!reaction) {
+            await channel.send("❌ Không có người tham gia.");
+            return;
+        }
+
+        const users = await reaction.users.fetch();
+        const validUsers = users.filter(u => !u.bot);
+
+        if (validUsers.size === 0) {
+            await channel.send("❌ Không có người tham gia.");
+            return;
+        }
+
+        const winner = validUsers.random();
+        await channel.send(`🏆 Chúc mừng ${winner} thắng **${data.prize}**!`);
+
+        // 🧹 remove khỏi list
+        giveaways = giveaways.filter(g => g.messageId !== data.messageId);
+        saveGiveaways(giveaways);
+
+    } catch (err) {
+        console.error("❌ End giveaway error:", err);
+    }
+}
+
+function isOwner(message) {
+    return message.author.id === OWNER_ID;
+}
+
 // ================= READY =================
-client.on('clientReady', () => {
+client.once('ready', () => {
     console.log(`✅ Bot đã online: ${client.user.tag}`);
 
     autoPendingStatus.running = true;
@@ -119,38 +208,54 @@ client.on('clientReady', () => {
             lastPendingRobux = pending;
 
             const channel = await client.channels.fetch(AUTO_PENDING_CHANNEL).catch(() => null);
-            if (!channel) return;
+            if (!channel || !channel.isTextBased()) return;
 
             const embed = new EmbedBuilder()
                 .setColor("#2dd4bf")
                 .setTitle("🔄 Auto Pending Update")
-				.setThumbnail(`.setThumbnail(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${cachedRobloxUserId}&size=420x420&format=Png&isCircular=false`)`)
                 .addFields(
 				    { name: "👤 Account", value: cachedRobloxUsername || "Unknown", inline: true },
 					{ name: "<:robux:1414051222922461204> Pending", value: `${pending.toLocaleString()} Robux`, inline: true }
 				)
-                .setTimestamp();
+				.setThumbnail(
+				    cachedRobloxAvatar ||
+					(cachedRobloxUserId
+					    ? `https://www.roblox.com/headshot-thumbnail/image?userId=${cachedRobloxUserId}&width=420&height=420&format=png`
+					    : null)
+                )
+				.setTimestamp();
 
-    try {
-        // 🚀 nếu đã có message → EDIT cho mượt
-        if (lastPendingMessage) {
-            await lastPendingMessage.edit({ embeds: [embed] });
-        } else {
-            // 🆕 chưa có thì gửi mới
-            lastPendingMessage = await channel.send({ embeds: [embed] });
+        try {
+            // 🚀 nếu đã có message → EDIT cho mượt
+            if (lastPendingMessage?.editable) {
+                await lastPendingMessage.edit({ embeds: [embed] });
+            } else {
+                // 🆕 chưa có thì gửi mới
+                lastPendingMessage = await channel.send({ embeds: [embed] });
+            }
+        } catch (err) { 
+            // 🧹 nếu edit fail thì xóa và gửi lại
+            if (lastPendingMessage) {
+                await lastPendingMessage.delete().catch(() => {});
+            }
+            lastPendingMessage = await channel.send({ embeds: [embed] }).catch(() => null);
         }
-    } catch (err) { 
-        // 🧹 nếu edit fail thì xóa và gửi lại
-        if (lastPendingMessage) {
-            await lastPendingMessage.delete().catch(() => {});
-        }
-        lastPendingMessage = await channel.send({ embeds: [embed] }).catch(() => null);
-    }
 
-        } catch (err) {
-            console.error("❌ Auto pending loop error:", err);
+            } catch (err) {
+                console.error("❌ Auto pending loop error:", err);
+            }
+        }, AUTO_PENDING_INTERVAL);
+	
+	    // 🔄 resume giveaways sau restart
+        for (const g of giveaways) {
+            const remaining = g.endAt - Date.now();
+
+            if (remaining <= 0) {
+                endGiveaway(client, g);
+            } else {
+                setTimeout(() => endGiveaway(client, g), remaining);
+            }
         }
-    }, AUTO_PENDING_INTERVAL);
 });
 
 // ================= MEMBER JOIN =================
@@ -186,8 +291,18 @@ client.on("messageCreate", async message => {
 
 // ===== ROBUX PENDING (manual) =====
 if (command === "pendingrbx" || command === "pending") {
+	
+	// 🔒 check NGAY đầu
+	if (!isOwner(message)) {
+		return message.reply("❌ K có quyền công dân nhá :)) ");
+	}
+	
     const pending = await getRobloxPending();
     if (pending === null) return message.reply("❌ Không lấy được pending.");
+	
+	if (!cachedRobloxAvatar && cachedRobloxUserId) {
+		cachedRobloxAvatar = await getRobloxAvatar(cachedRobloxUserId);
+	}
 
     const embed = new EmbedBuilder()
         .setColor("#2dd4bf")
@@ -196,13 +311,25 @@ if (command === "pendingrbx" || command === "pending") {
             { name: "👤 Account", value: cachedRobloxUsername || "Unknown", inline: true },
 			{ name: "<:robux:1414051222922461204> Pending", value: `${pending.toLocaleString()} Robux`, inline: true }
 		)
-        .setTimestamp();
+		.setThumbnail(
+			cachedRobloxAvatar ||
+			(cachedRobloxUserId
+				? `https://www.roblox.com/headshot-thumbnail/image?userId=${cachedRobloxUserId}&width=420&height=420&format=png`
+				: null)
+	    )
+		.setTimestamp();
 
     return message.reply({ embeds: [embed] });
 }
 
 // ===== AUTO PENDING STATUS =====
 if (command === "pendingst") {
+	
+	// 🔒 check trước tiên
+	if (!isOwner(message)) {
+		return message.reply("❌ K có quyền công dân nhá :)) ");
+    }
+	
     if (!autoPendingStatus.running) {
         return message.reply("❌ Auto pending chưa chạy.");
     }
@@ -297,8 +424,14 @@ if (command === "pendingst") {
 		
 		for (let i = 0; i < sorted.length; i++) {
             const u = sorted[i];
-            const user = await client.users.fetch(u[0]).catch(() => null);
-			lines.push(`${i + 1}. ${user ? user.tag : "Unknown"} — ${u[1].money}`);
+			
+			let tag = "Unknown";
+			try {
+				const user = await client.users.fetch(u[0]);
+				tag = user.tag;
+			} catch {}
+		    
+			lines.push(`${i + 1}. ${tag} — ${u[1].money}`);
         }
 		
         const text = lines.join("\n");
@@ -309,7 +442,12 @@ if (command === "pendingst") {
     // ===== GIVEAWAY =====
     if (command === "ga") {
         const time = parseInt(args[0]);
-        const prize = args.slice(0).join(" ");
+        const prize = args.slice(1).join(" ");
+		
+		// 🔒 check quyền trước khi làm gì
+		if (!isOwner(message)) {
+			return message.reply("❌ K có quyền công dân nhá :)) ");
+		}
 
         if (isNaN(time) || !prize) {
             return message.reply("❌ Dùng: !ga <giây> <phần thưởng>");
@@ -336,27 +474,37 @@ if (command === "pendingst") {
             prize
         };
 
-        setTimeout(async () => {
-            try {
-                const fetched = await giveawayMsg.fetch();
-                const reaction = fetched.reactions.cache.get("🎉");
-                if (!reaction) return message.channel.send("❌ Không có người tham gia.");
+        const ms = time * 1000;
+        const endAt = Date.now() + ms;
 
-                const users = await reaction.users.fetch();
-                const validUsers = users.filter(u => !u.bot);
-                if (validUsers.size === 0) return message.channel.send("❌ Không có người tham gia.");
+        // 💾 lưu giveaway
+        giveaways.push({
+            messageId: giveawayMsg.id,
+            channelId: message.channel.id,
+            prize,
+            endAt
+        });
+        saveGiveaways(giveaways);
 
-                const winner = validUsers.random();
-                message.channel.send(`🏆 Chúc mừng ${winner} thắng **${prize}**!`);
-            } catch (err) {
-                console.error("❌ Giveaway error:", err);
-            }
-        }, time * 1000);
-    }
+        // ⏳ schedule
+        setTimeout(() => endGiveaway(client, {
+            messageId: giveawayMsg.id,
+            channelId: message.channel.id,
+            prize,
+            endAt
+        }), ms);
+	}
 
     // ===== REROLL =====
     if (command === "rr") {
+		
+		if (!isOwner(message)) {
+			return message.reply("❌ K có quyền công dân nhá :)) ");
+		}
+		
         if (!lastGiveaway) return message.reply("❌ Không có giveaway để reroll.");
+		
+
 
         try {
             const channel = await client.channels.fetch(lastGiveaway.channelId);
