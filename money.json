@@ -1,0 +1,9 @@
+const fs = require("fs");
+
+function saveMoney() {
+    try {
+        fs.writeFileSync("./money.json", JSON.stringify(money, null, 2));
+    } catch (err) {
+        console.error("❌ Lỗi lưu money:", err);
+    }
+}
