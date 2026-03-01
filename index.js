@@ -49,7 +49,7 @@ const WELCOME_CHANNEL_ID = "1475192723484180570";
 
 // 🔥 AUTO PENDING CONFIG
 const AUTO_PENDING_CHANNEL = "1453002723170586635"; // đổi nếu muốn
-const AUTO_PENDING_INTERVAL = 1 * 60 * 1000; // 5 phút
+const AUTO_PENDING_INTERVAL = 5 * 60 * 1000; // 5 phút
 
 let cachedRobloxUserId = null;
 let lastPendingRobux = null;
@@ -356,4 +356,5 @@ if (command === "pendingst") {
     }
 });
 
-client.login(process.env.DISCORD_TOKEN);
+console.log("TOKEN length:", process.env.TOKEN?.length);
+client.login(process.env.TOKEN);
