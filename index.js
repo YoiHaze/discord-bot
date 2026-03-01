@@ -51,6 +51,7 @@ const WELCOME_CHANNEL_ID = "1475192723484180570";
 const AUTO_PENDING_CHANNEL = "1453002723170586635"; // đổi nếu muốn
 const AUTO_PENDING_INTERVAL = 3 * 60 * 1000; // 3 phút
 
+let cachedRobloxUsername = null;
 let cachedRobloxUserId = null;
 let lastPendingRobux = null;
 let lastGiveaway = null;
@@ -68,7 +69,7 @@ async function getRobloxPending() {
     if (!ROBLOX_COOKIE) return null;
 
     try {
-        if (!cachedRobloxUserId) {
+        if (!cachedRobloxUserId || !cachedRobloxUsername) {
             const userRes = await axios.get(
                 "https://users.roblox.com/v1/users/authenticated",
                 {
@@ -79,6 +80,7 @@ async function getRobloxPending() {
                 }
             );
             cachedRobloxUserId = userRes.data.id;
+			cachedRobloxUsername = userRes.data.name;
         }
 
         const res = await axios.get(
@@ -120,9 +122,13 @@ client.on('clientReady', () => {
             if (!channel) return;
 
             const embed = new EmbedBuilder()
-                .setColor("#f2c94c")
+                .setColor("#2dd4bf")
                 .setTitle("🔄 Auto Pending Update")
-                .setDescription(`💰 Pending hiện tại: **${pending.toLocaleString()} Robux**`)
+				.setThumbnail(`.setThumbnail(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${cachedRobloxUserId}&size=420x420&format=Png&isCircular=false`)`)
+                .addFields(
+				    { name: "👤 Account", value: cachedRobloxUsername || "Unknown", inline: true },
+					{ name: "<:robux:1414051222922461204> Pending", value: `${pending.toLocaleString()} Robux`, inline: true }
+				)
                 .setTimestamp();
 
     try {
@@ -184,9 +190,12 @@ if (command === "pendingrbx" || command === "pending") {
     if (pending === null) return message.reply("❌ Không lấy được pending.");
 
     const embed = new EmbedBuilder()
-        .setColor("#f2c94c")
+        .setColor("#2dd4bf")
         .setTitle("⏳ Robux đang chờ xử lý")
-        .setDescription(`💰 Pending hiện tại: **${pending.toLocaleString()} Robux**`)
+		.addFields(
+            { name: "👤 Account", value: cachedRobloxUsername || "Unknown", inline: true },
+			{ name: "<:robux:1414051222922461204> Pending", value: `${pending.toLocaleString()} Robux`, inline: true }
+		)
         .setTimestamp();
 
     return message.reply({ embeds: [embed] });
@@ -300,7 +309,7 @@ if (command === "pendingst") {
     // ===== GIVEAWAY =====
     if (command === "ga") {
         const time = parseInt(args[0]);
-        const prize = args.slice(1).join(" ");
+        const prize = args.slice(0).join(" ");
 
         if (isNaN(time) || !prize) {
             return message.reply("❌ Dùng: !ga <giây> <phần thưởng>");
