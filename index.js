@@ -215,7 +215,7 @@ client.once('ready', () => {
                 .setTitle("🔄 Auto Pending Update")
                 .addFields(
 				    { name: "👤 Account", value: cachedRobloxUsername || "Unknown", inline: true },
-					{ name: "<:robux:1414051222922461204> Pending", value: `${pending.toLocaleString()} Robux`, inline: true }
+					{ name: "Pending", value: `${pending.toLocaleString()} Robux`, inline: true }
 				)
 				.setThumbnail(
 				    cachedRobloxAvatar ||
@@ -529,3 +529,4 @@ process.on("unhandledRejection", console.error);
 process.on("uncaughtException", console.error);
 console.log("TOKEN length:", process.env.TOKEN?.length);
 client.login(process.env.TOKEN);
+
