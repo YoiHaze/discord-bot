@@ -49,7 +49,7 @@ const WELCOME_CHANNEL_ID = "1475192723484180570";
 
 // 🔥 AUTO PENDING CONFIG
 const AUTO_PENDING_CHANNEL = "1453002723170586635"; // đổi nếu muốn
-const AUTO_PENDING_INTERVAL = 5 * 60 * 1000; // 5 phút
+const AUTO_PENDING_INTERVAL = 3 * 60 * 1000; // 3 phút
 
 let cachedRobloxUserId = null;
 let lastPendingRobux = null;
@@ -99,7 +99,7 @@ async function getRobloxPending() {
 }
 
 // ================= READY =================
-client.on("ready", () => {
+client.on('clientReady', () => {
     console.log(`✅ Bot đã online: ${client.user.tag}`);
 
     autoPendingStatus.running = true;
@@ -141,7 +141,6 @@ client.on("ready", () => {
         lastPendingMessage = await channel.send({ embeds: [embed] }).catch(() => null);
     }
 
-            channel.send({ embeds: [embed] }).catch(() => {});
         } catch (err) {
             console.error("❌ Auto pending loop error:", err);
         }
@@ -218,7 +217,7 @@ if (command === "pendingst") {
     return message.reply({ embeds: [embed] });
 }
 
-    // ===== MONEY =====
+    // ===== COIN =====
     if (command === "coin" || command === "bal") {
         const userData = getUser(message.author.id);
 		
@@ -256,22 +255,26 @@ if (command === "pendingst") {
     // ===== PAY =====
     if (command === "pay") {
         const user = message.mentions.users.first();
-        const amount = parseInt(args[1]);
+        const amount = parseInt(args.find(a => !isNaN(a)));
 
         if (!user) return message.reply("❌ Tag người nhận.");
-        if (!amount || amount <= 0) return message.reply("❌ Nhập số tiền hợp lệ.");
+        if (isNaN(amount) || amount <= 0) return message.reply("❌ Nhập số tiền hợp lệ.");
+		if (user.id === message.author.id) return message.reply("❌ Không thể tự chuyển tiền.");
 
         const sender = getUser(message.author.id);
         const receiver = getUser(user.id);
 
-        if (sender.money < amount) return message.reply("❌ Bạn không đủ tiền.");
+        if (sender.money < amount) return message.reply("❌ Nghèo mà đòi mr beast.");
 
         sender.money -= amount;
         receiver.money += amount;
         saveMoney();
 
-        return message.reply(`💸 Đã chuyển **${amount}** coin cho ${user}`);
-    }
+        return message.reply({
+            content: `💸 Đã chuyển **${amount}** coin cho ${user}`,
+            allowedMentions: { users: [user.id] }
+		});
+	}
 
     // ===== TOP =====
     if (command === "top") {
@@ -281,10 +284,15 @@ if (command === "pendingst") {
 
         if (sorted.length === 0) return message.reply("Chưa có dữ liệu.");
 
-        const text = sorted.map((u, i) => {
-            const user = client.users.cache.get(u[0]);
-            return `${i + 1}. ${user ? user.tag : "Unknown"} — ${u[1].money}`;
-        }).join("\n");
+        const lines = [];
+		
+		for (let i = 0; i < sorted.length; i++) {
+            const u = sorted[i];
+            const user = await client.users.fetch(u[0]).catch(() => null);
+			lines.push(`${i + 1}. ${user ? user.tag : "Unknown"} — ${u[1].money}`);
+        }
+		
+        const text = lines.join("\n");
 
         return message.channel.send(`🏆 **TOP GIÀU NHẤT**\n${text}`);
     }
@@ -297,7 +305,11 @@ if (command === "pendingst") {
         if (isNaN(time) || !prize) {
             return message.reply("❌ Dùng: !ga <giây> <phần thưởng>");
         }
-
+		
+		if (time <= 0) {
+            return message.reply("❌ Thời gian phải > 0.");
+		}
+		
         const embed = new EmbedBuilder()
             .setTitle("🎉 GIVEAWAY 🎉")
             .setDescription(
@@ -356,5 +368,7 @@ if (command === "pendingst") {
     }
 });
 
+process.on("unhandledRejection", console.error);
+process.on("uncaughtException", console.error);
 console.log("TOKEN length:", process.env.TOKEN?.length);
 client.login(process.env.TOKEN);
